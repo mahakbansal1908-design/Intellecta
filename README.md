@@ -30,9 +30,9 @@ Intellecta Amber is a highly resilient, Apple-inspired React SPA that modernizes
 ```mermaid
 graph TD
     A[React Client SPA] -->|SSE Query Stream| B[FastAPI Web Gateway]
-    B -->|Spawn/Monitor Async Task| C[Agent Orchestrator (agent7.py)]
+    B -->|Spawn/Monitor Async Task| C["Agent Orchestrator (agent7.py)"]
     C -->|Query / Read| D[(FAISS Vector Memory)]
-    C -->|Execute MCP Tools| E[MCP Tool Server (mcp_server.py)]
+    C -->|Execute MCP Tools| E["MCP Tool Server (mcp_server.py)"]
     E -->|spoof User-Agent| F[Premium Web Crawler / Accuweather / Brave]
     A -->|Upload docs| B
     B -->|Background Index Worker| D
