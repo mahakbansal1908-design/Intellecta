@@ -138,9 +138,12 @@ def _ddg_search(query: str, max_results: int) -> list[dict]:
 async def _crawl4ai_fetch(url: str) -> dict:
     import trafilatura
     
-    # Use advanced browser-mimicking headers to evade Cloudflare / AccuWeather request blocks
+    # Select compliant headers for Wikimedia to bypass robot filters, and use desktop browser-mimicry for other sites
+    is_wiki = "wikipedia.org" in url or "wikimedia.org" in url
+    user_agent = "IntellectaRAG/1.0 (contact@intellectarag.com) python-httpx/0.27" if is_wiki else "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "User-Agent": user_agent,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
         "Connection": "keep-alive",
