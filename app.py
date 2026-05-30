@@ -347,6 +347,97 @@ def stream_query(query: str, request: Request):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+@app.get("/v1/workspace/relationships")
+def get_workspace_relationships():
+    """Compute document average embeddings, top keywords, and cosine similarities
+    to map out the semantic workspace relationship graph and heatmap."""
+    import numpy as np
+    
+    memory_file = ASSIGNMENT_DIR / "state" / "memory.json"
+    if not memory_file.exists():
+        return {"nodes": [], "links": []}
+        
+    try:
+        with open(memory_file, "r") as f:
+            items = json.load(f)
+    except Exception:
+        return {"nodes": [], "links": []}
+        
+    # Group items by source document
+    docs = {}
+    for item in items:
+        if item.get("kind") != "fact":
+            continue
+        val = item.get("value") or {}
+        source = val.get("source")
+        embedding = item.get("embedding")
+        if not source or not embedding:
+            continue
+            
+        if source not in docs:
+            docs[source] = {
+                "embeddings": [],
+                "keywords": set(),
+                "chunks_count": 0
+            }
+        docs[source]["embeddings"].append(embedding)
+        docs[source]["chunks_count"] += 1
+        # Extract unique keywords
+        for k in item.get("keywords", []):
+            if len(k) > 2:
+                docs[source]["keywords"].add(k)
+                
+    if not docs:
+        return {"nodes": [], "links": []}
+        
+    # Process documents into nodes and calculate average embeddings
+    nodes = []
+    doc_names = list(docs.keys())
+    avg_embeddings = []
+    
+    for i, source in enumerate(doc_names):
+        d = docs[source]
+        avg_emb = np.mean(d["embeddings"], axis=0)
+        # Normalize for fast cosine similarity
+        norm = np.linalg.norm(avg_emb)
+        avg_emb_norm = avg_emb / norm if norm > 0 else avg_emb
+        avg_embeddings.append(avg_emb_norm)
+        
+        # Short display name
+        display_name = source.split("/")[-1] if "/" in source else source
+        nodes.append({
+            "id": source,
+            "name": display_name,
+            "chunks": d["chunks_count"],
+            "keywords": list(d["keywords"])[:6],
+            "group": i % 5 # Colormap index
+        })
+        
+    # Calculate all pairwise similarities
+    avg_embeddings = np.array(avg_embeddings)
+    similarity_matrix = np.dot(avg_embeddings, avg_embeddings.T)
+    
+    links = []
+    n = len(doc_names)
+    for i in range(n):
+        for j in range(i + 1, n):
+            score = float(similarity_matrix[i, j])
+            # Connect nodes if their semantic similarity is significant
+            if score >= 0.45:
+                links.append({
+                    "source": doc_names[i],
+                    "target": doc_names[j],
+                    "value": score
+                })
+                
+    return {
+        "nodes": nodes,
+        "links": links,
+        "matrix": similarity_matrix.tolist(),
+        "names": [n["name"] for n in nodes]
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard_index():
     """Serve the main dashboard page."""

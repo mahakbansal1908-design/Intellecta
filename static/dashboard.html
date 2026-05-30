@@ -12,6 +12,8 @@
     <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- D3.js CDN for visual relationship analytics -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
 
     <script>
         tailwind.config = {
@@ -112,6 +114,253 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
+        function WorkspaceAnalytics({ data, activeTab, setActiveTab, onClose }) {
+            const svgRef = useRef(null);
+            const tooltipRef = useRef(null);
+
+            useEffect(() => {
+                if (activeTab !== 'graph' || !data.nodes || data.nodes.length === 0) return;
+
+                // Initialize D3 canvas
+                const width = 800;
+                const height = 450;
+                
+                // Clear past SVG elements
+                d3.select(svgRef.current).selectAll("*").remove();
+
+                const svg = d3.select(svgRef.current)
+                    .attr("viewBox", [0, 0, width, height])
+                    .style("width", "100%")
+                    .style("height", "auto");
+
+                // Gradient filters for links
+                const defs = svg.append("defs");
+                const linkGrad = defs.append("linearGradient")
+                    .attr("id", "link-glow")
+                    .attr("x1", "0%").attr("y1", "0%")
+                    .attr("x2", "100%").attr("y2", "100%");
+                linkGrad.append("stop").attr("offset", "0%").attr("stop-color", "#f97316").attr("stop-opacity", 0.4);
+                linkGrad.append("stop").attr("offset", "100%").attr("stop-color", "#ea580c").attr("stop-opacity", 0.6);
+
+                // Setup force layout simulation
+                const simulation = d3.forceSimulation(data.nodes)
+                    .force("link", d3.forceLink(data.links).id(d => d.id).distance(150))
+                    .force("charge", d3.forceManyBody().strength(-250))
+                    .force("center", d3.forceCenter(width / 2, height / 2))
+                    .force("collision", d3.forceCollide().radius(60));
+
+                // Draw connection links
+                const link = svg.append("g")
+                    .attr("stroke", "url(#link-glow)")
+                    .attr("stroke-opacity", 0.6)
+                    .selectAll("line")
+                    .data(data.links)
+                    .join("line")
+                    .attr("stroke-width", d => Math.max(1.5, d.value * 5.5));
+
+                // Drag gesture handlers
+                function dragstarted(event, d) {
+                    if (!event.active) simulation.alphaTarget(0.3).restart();
+                    d.fx = d.x;
+                    d.fy = d.y;
+                }
+                function dragged(event, d) {
+                    d.fx = event.x;
+                    d.fy = event.y;
+                }
+                function dragended(event, d) {
+                    if (!event.active) simulation.alphaTarget(0);
+                    d.fx = null;
+                    d.fy = null;
+                }
+
+                // Draw Node Groups
+                const node = svg.append("g")
+                    .selectAll("g")
+                    .data(data.nodes)
+                    .join("g")
+                    .call(d3.drag()
+                        .on("start", dragstarted)
+                        .on("drag", dragged)
+                        .on("end", dragended)
+                    )
+                    .style("cursor", "grab");
+
+                // Glowing base circles
+                node.append("circle")
+                    .attr("r", 24)
+                    .attr("fill", "#ffffff")
+                    .attr("stroke", d => d.group % 2 === 0 ? "#ea580c" : "#a855f7")
+                    .attr("stroke-width", 3.5)
+                    .style("filter", "drop-shadow(0px 4px 12px rgba(234, 88, 12, 0.12))")
+                    .on("mouseover", (event, d) => {
+                        d3.select(event.currentTarget)
+                            .transition().duration(200)
+                            .attr("r", 28)
+                            .attr("stroke-width", 5);
+
+                        // Show tooltip
+                        const keywordsList = d.keywords && d.keywords.length > 0 
+                            ? d.keywords.join(", ") 
+                            : "None";
+                        
+                        d3.select(tooltipRef.current)
+                            .style("opacity", 1)
+                            .html(`
+                                <div class="font-sans p-3 rounded-xl border border-slate-200/60 bg-white/80 backdrop-blur-md shadow-xl text-xs text-slate-700 leading-relaxed max-w-[240px]">
+                                    <p class="font-bold text-slate-950 mb-1 truncate">${d.name}</p>
+                                    <p class="mb-1"><strong class="text-slate-600">Index Chunks:</strong> ${d.chunks}</p>
+                                    <p><strong class="text-slate-600">Top Keywords:</strong> <span class="text-brand-600 font-medium">${keywordsList}</span></p>
+                                </div>
+                            `);
+                    })
+                    .on("mousemove", (event) => {
+                        const bounds = svgRef.current.getBoundingClientRect();
+                        d3.select(tooltipRef.current)
+                            .style("left", `${event.clientX - bounds.left + 20}px`)
+                            .style("top", `${event.clientY - bounds.top - 10}px`);
+                    })
+                    .on("mouseout", (event) => {
+                        d3.select(event.currentTarget)
+                            .transition().duration(200)
+                            .attr("r", 24)
+                            .attr("stroke-width", 3.5);
+
+                        d3.select(tooltipRef.current).style("opacity", 0);
+                    });
+
+                // Inner core bullet dot
+                node.append("circle")
+                    .attr("r", 7)
+                    .attr("fill", d => d.group % 2 === 0 ? "#f97316" : "#c084fc");
+
+                // Document Title Labels below nodes
+                node.append("text")
+                    .attr("dy", 38)
+                    .attr("text-anchor", "middle")
+                    .attr("class", "font-sans text-[10px] font-bold fill-slate-800 tracking-wide bg-white/85 px-2 py-0.5 rounded")
+                    .text(d => d.name.length > 16 ? d.name.substring(0, 14) + "..." : d.name);
+
+                // Update force frame positions
+                simulation.on("tick", () => {
+                    link
+                        .attr("x1", d => d.source.x)
+                        .attr("y1", d => d.source.y)
+                        .attr("x2", d => d.target.x)
+                        .attr("y2", d => d.target.y);
+
+                    node
+                        .attr("transform", d => `translate(${d.x},${d.y})`);
+                });
+
+                return () => simulation.stop();
+            }, [activeTab, data]);
+
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-slate-950/60 backdrop-blur-sm animate-fade-in-up">
+                    <div className="bg-[#fbfaf7] border border-slate-200 shadow-2xl rounded-3xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+                        
+                        {/* Premium Header */}
+                        <div className="px-8 py-5 border-b border-slate-200/60 bg-white flex justify-between items-center">
+                            <div>
+                                <h3 className="font-outfit text-lg font-bold text-slate-950 flex items-center gap-2">
+                                    <span>🔮</span> Semantic Workspace Analytics
+                                </h3>
+                                <p className="text-xs text-slate-400 mt-0.5">Explore semantic similarity connections and vector cosine ratios.</p>
+                            </div>
+                            <button onClick={onClose} className="text-slate-400 hover:text-slate-800 transition-colors p-1.5 hover:bg-slate-100 rounded-full">
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+
+                        {/* Tab Selector */}
+                        <div className="px-8 py-3 bg-slate-100/50 border-b border-slate-200 flex gap-3 items-center">
+                            <button 
+                                onClick={() => setActiveTab('graph')} 
+                                className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all duration-200 ${activeTab === 'graph' ? 'bg-brand-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-200'}`}
+                            >
+                                🌐 Connection Graph
+                            </button>
+                            <button 
+                                onClick={() => setActiveTab('heatmap')} 
+                                className={`px-4 py-1.5 rounded-full text-xs font-semibold tracking-wide transition-all duration-200 ${activeTab === 'heatmap' ? 'bg-brand-600 text-white shadow-md' : 'text-slate-600 hover:bg-slate-200'}`}
+                            >
+                                🎛️ Similarity Heatmap
+                            </button>
+                        </div>
+
+                        {/* Visualization Canvas Area */}
+                        <div className="flex-1 p-6 overflow-y-auto flex items-center justify-center min-h-[450px] relative bg-white">
+                            {(!data.nodes || data.nodes.length === 0) ? (
+                                <div className="text-center py-16">
+                                    <div className="text-4xl mb-3">📂</div>
+                                    <p className="text-sm font-bold text-slate-800">Your workspace is empty</p>
+                                    <p className="text-xs text-slate-400 mt-1">Upload documents to start plotting automatic vector relationships.</p>
+                                </div>
+                            ) : activeTab === 'graph' ? (
+                                <div className="w-full relative">
+                                    <svg ref={svgRef} className="w-full h-auto rounded-2xl bg-slate-50/50 border border-slate-100 shadow-inner"></svg>
+                                    {/* Hover Floating Tooltip */}
+                                    <div ref={tooltipRef} className="absolute pointer-events-none opacity-0 transition-opacity duration-200 z-50"></div>
+                                </div>
+                            ) : (
+                                /* Cosine Similarity Heatmap Grid */
+                                <div className="w-full max-w-2xl overflow-x-auto p-4">
+                                    <div className="bg-slate-50 border border-slate-200 shadow-inner rounded-2xl p-5">
+                                        <table className="w-full border-collapse text-xs font-mono">
+                                            <thead>
+                                                <tr>
+                                                    <th className="p-2 border-b border-slate-200 bg-white text-left font-sans font-bold text-slate-800">Document Name</th>
+                                                    {data.names.map((n, idx) => (
+                                                        <th key={idx} className="p-2 border-b border-slate-200 bg-white text-center font-sans font-bold text-slate-800 rotate-45 max-w-[80px] truncate" title={n}>
+                                                            {n.length > 10 ? n.substring(0, 8) + '..' : n}
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {data.nodes.map((nodeRow, rIdx) => (
+                                                    <tr key={rIdx}>
+                                                        <td className="p-2 border border-slate-200 bg-white font-sans font-semibold text-slate-700 truncate max-w-[150px]" title={nodeRow.name}>
+                                                            {nodeRow.name}
+                                                        </td>
+                                                        {data.matrix[rIdx].map((score, cIdx) => {
+                                                            // Color intensity based on cosine similarity score
+                                                            let bgStyle = {};
+                                                            if (rIdx === cIdx) {
+                                                                bgStyle = { background: '#ffedd5', color: '#ea580c', fontWeight: 'bold' };
+                                                            } else {
+                                                                const opacity = Math.max(0.05, score);
+                                                                bgStyle = { 
+                                                                    background: `rgba(249, 115, 22, ${opacity})`, 
+                                                                    color: score > 0.6 ? '#ffffff' : '#475569',
+                                                                    fontWeight: score > 0.6 ? 'bold' : 'normal'
+                                                                };
+                                                            }
+                                                            return (
+                                                                <td 
+                                                                    key={cIdx} 
+                                                                    style={bgStyle} 
+                                                                    className="p-2.5 border border-slate-200 text-center transition-all duration-300 hover:scale-110 cursor-default"
+                                                                    title={`${data.nodes[rIdx].name} vs ${data.nodes[cIdx].name}: ${score.toFixed(4)}`}
+                                                                >
+                                                                    {score.toFixed(2)}
+                                                                </td>
+                                                            );
+                                                        })}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         function App() {
             const [viewMode, setViewMode] = useState('landing'); // 'landing' or 'workspace'
             const [query, setQuery] = useState('');
@@ -122,10 +371,25 @@
             const [logs, setLogs] = useState([]);
             const [synthesis, setSynthesis] = useState('');
             const [isSearching, setIsSearching] = useState(false);
+            
+            // Dynamic visual analytics state hooks
+            const [showAnalytics, setShowAnalytics] = useState(false);
+            const [analyticsTab, setAnalyticsTab] = useState('graph'); // 'graph' or 'heatmap'
+            const [relationshipData, setRelationshipData] = useState({ nodes: [], links: [], matrix: [], names: [] });
 
             const activeEventSourceRef = useRef(null);
             const terminalEndRef = useRef(null);
             const fileInputRef = useRef(null);
+
+            const loadRelationships = async () => {
+                try {
+                    const res = await fetch("/v1/workspace/relationships");
+                    const data = await res.json();
+                    setRelationshipData(data || { nodes: [], links: [], matrix: [], names: [] });
+                } catch (e) {
+                    console.error("Failed loading workspace relationships:", e);
+                }
+            };
 
             // Poll documentation status
             const loadDocuments = async () => {
@@ -133,6 +397,7 @@
                     const res = await fetch("/v1/documents");
                     const data = await res.json();
                     setFilesCount(data ? data.length : 0);
+                    loadRelationships(); // Auto-sync graph and similarity matrix states
                 } catch (e) {
                     console.error(e);
                 }
@@ -352,7 +617,7 @@
                                         <span className="text-brand-600">File Workspace</span>
                                     </h2>
                                     <p className="text-slate-500 text-base leading-relaxed max-w-md">
-                                        Investigate system architecture, verify files, extract core regionalization facts, and parse semantic variables dynamically.
+                                        Empower your research workspace with cognitive multi-document ingestion, real-time semantic indexing, and proactive reasoning insights.
                                     </p>
 
                                     {/* Elevated, Highly-Visible Actions */}
@@ -367,10 +632,21 @@
                                             <span className="text-[10px] text-slate-400 mt-1">PDF, DOCX, Markdown & Text</span>
                                         </div>
 
-                                        {/* Get Started Search Trigger */}
+                                        {/* Staggered Get Started Search Trigger */}
                                         <button onClick={() => setViewMode('workspace')} className="bg-slate-950 hover:bg-brand-600 text-white text-sm font-bold py-4 rounded-2xl transition-all duration-300 shadow-lg hover:-translate-y-0.5 flex items-center justify-center gap-2">
                                             Get started
                                             <svg className="w-4 h-4 fill-none stroke-current" strokeWidth="2.5" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                                        </button>
+
+                                        {/* Premium Visual Relationship Graph trigger */}
+                                        <button 
+                                            onClick={() => {
+                                                loadRelationships();
+                                                setShowAnalytics(true);
+                                            }} 
+                                            className="bg-white border border-slate-200 text-slate-700 hover:border-brand-500 hover:text-brand-600 text-xs font-semibold py-3.5 rounded-2xl transition-all duration-300 shadow-sm hover:-translate-y-0.5 flex items-center justify-center gap-2"
+                                        >
+                                            🔮 View Workspace Semantic Graph
                                         </button>
                                     </div>
                                 </div>
@@ -526,6 +802,16 @@
                         }} 
                         className="hidden" 
                     />
+
+                    {/* Premium visual relationship analytics overlay drawer */}
+                    {showAnalytics && (
+                        <WorkspaceAnalytics 
+                            data={relationshipData} 
+                            activeTab={analyticsTab} 
+                            setActiveTab={setAnalyticsTab} 
+                            onClose={() => setShowAnalytics(false)} 
+                        />
+                    )}
                 </div>
             );
         }
