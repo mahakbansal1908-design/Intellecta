@@ -1,0 +1,27 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Environment Configurations
+.env
+.env.*
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# MacOS metadata
+.DS_Store
+
+# Project Sandbox & Active Run States
+sandbox/
+state/
+brain/
+*.log
