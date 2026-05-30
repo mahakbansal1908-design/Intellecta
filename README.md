@@ -2,6 +2,8 @@
 
 Intellecta Amber is a highly resilient, Apple-inspired React SPA that modernizes document ingestion and cognitive multi-agent search. It implements advanced non-blocking ingestion pipelines, proactive temporal tool-based reasoning, and full-stack SSE stream termination workflows to deliver a state-of-the-art user control interface.
 
+[![Intellecta Amber Demo Video](https://img.shields.io/badge/🎥%20Demo%20Video-Watch%20Now-red?style=for-the-badge&logo=youtube)](https://youtu.be/KKBz4opfRrA)
+
 ---
 
 ## 🌟 Key Modernizations & Features
